@@ -1,39 +1,37 @@
-#include <drogon/drogon.h>
 #include <spdlog/spdlog.h>
-#include <chrono>
-#include <ctime>
-#include <string>
+#include "FlightLogic.hpp"
+#include "TelemetryManager.hpp"
+#include "RocketSimulator.hpp"
+#include "WebStreamController.hpp"
 
 int main() {
-    using namespace drogon;
+    // Configuración básica de spdlog
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
+    spdlog::info("Iniciando Middleware del Cohete...");
+    
+    // --- 1. CAPA DE DOMINIO ---
+    FlightLogic logic(15.0f);
 
-    // Register handler for GET /api/health
-    app().registerHandler(
-        "/api/health",
-        [](const HttpRequestPtr &req, std::function<void (const HttpResponsePtr &)> &&callback) {
-            // Obtain current time as ISO-like string
-            auto now = std::chrono::system_clock::now();
-            std::time_t tt = std::chrono::system_clock::to_time_t(now);
-            // ctime gives a trailing newline; we'll trim it
-            std::string timestr = std::ctime(&tt);
-            if (!timestr.empty() && timestr.back() == '\n') timestr.pop_back();
+    // --- 2. CAPA DE INFRAESTRUCTURA (ENTRADA) ---
+    auto simulator = std::make_unique<RocketSimulator>();
 
-            Json::Value json;
-            json["status"] = "ok";
-            json["time"] = timestr;
+    // --- 3. CAPA DE APLICACIÓN ---
+    auto manager = std::make_shared<TelemetryManager>(std::move(simulator), logic);
 
-            auto resp = HttpResponse::newHttpJsonResponse(json);
-            callback(resp);
-        },
-        {Get} // method
-    );
+    // --- 4. CAPA DE INFRAESTRUCTURA (SALIDA/RED) ---
+    // Configuramos el controlador para que use nuestro manager
+    WebStreamController::setManager(manager);
 
-    // Listen on all interfaces, port 3000
-    app().addListener("0.0.0.0", 3000);
-    // Optionally: set number of threads (by default drogon config decides). Example:
-    // app().setThreadNum(4);
+    // Hilo para que el Manager actualice los datos de forma independiente
+    std::jthread worker([manager](std::stop_token st) {
+        while (!st.stop_requested()) {
+            manager->update();
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    });
 
-    spdlog::info("Starting server on 0.0.0.0:3000");
-    app().run();
+    // Lanzar servidor Drogon en el puerto 8080
+    drogon::app().addListener("0.0.0.0", 8080).run();
+
     return 0;
 }

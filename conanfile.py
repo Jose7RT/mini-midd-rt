@@ -8,7 +8,7 @@ class MiniMiddlewareConan(ConanFile):
         "drogon/1.9.0",
         "spdlog/1.12.0",
         "nlohmann_json/3.11.2",
-        "gtest/1.13.0"
+        "gtest/1.17.0"
     )
     generators = "CMakeDeps", "CMakeToolchain"
     default_options = {}
